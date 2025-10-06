@@ -436,3 +436,12 @@ This guide is based on security best practices for Linux systems. Contributions 
 ## License
 
 This guide is provided for educational purposes. Always verify configurations in your specific environment before implementation.
+
+---
+
+## Ending Note
+
+<p align="center">
+	<img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/footers/gray0_ctp_on_line.svg?sanitize=true" />
+</p>
+
