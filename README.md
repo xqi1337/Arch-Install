@@ -1,6 +1,5 @@
 # Arch Hardening
 
-
 ## Table of Contents
 
 - [Kernel Hardening](#kernel-hardening)
@@ -11,52 +10,47 @@
 - [Network Security](#network-security)
 - [Virtualization](#virtualization)
 - [System Configuration](#system-configuration)
+- [Bootloader Security](#bootloader-security)
+- [PAM Configuration](#pam-configuration)
 - [Best Practices](#best-practices)
+- [File Editing Security](#file-editing-security)
+- [Partitioning and Mount Options](#partitioning-and-mount-options)
+
+---
 
 ## Kernel Hardening
 
 ### Sysctl Configuration
 
-Configure kernel security parameters by creating files in `/etc/sysctl.d/`:
+cerate `/etc/sysctl.d/`:
 
-#### Kernel Pointer Protection
-Create `kptr_restrict.conf`:
+#### `/etc/sysctl.d/kptr_restrict.conf`
 ```
 kernel.kptr_restrict=2
 ```
-Prevents kernel pointer leaks via `/proc/kallsyms` or `dmesg`.
 
-#### Kernel Log Protection
-Create `dmesg_restrict.conf`:
+#### `/etc/sysctl.d/dmesg_restrict.conf`
 ```
 kernel.dmesg_restrict=1
 ```
-Blocks non-root users from accessing kernel logs.
 
-#### BPF Hardening
-Create `harden_bpf.conf`:
+#### `/etc/sysctl.d/harden_bpf.conf`
 ```
 kernel.unprivileged_bpf_disabled=1
 net.core.bpf_jit_harden=2
 ```
-Restricts BPF JIT compiler to root and hardens it against exploitation.
 
-#### Ptrace Restrictions
-Create `ptrace_scope.conf`:
+#### `/etc/sysctl.d/ptrace_scope.conf`
 ```
 kernel.yama.ptrace_scope=2
 ```
-Limits ptrace usage to processes with `CAP_SYS_PTRACE`.
 
-#### Kexec Protection
-Create `kexec.conf`:
+#### `/etc/sysctl.d/kexec.conf`
 ```
 kernel.kexec_load_disabled=1
 ```
-Disables kexec to prevent kernel replacement.
 
-#### TCP/IP Stack Hardening
-Create `tcp_hardening.conf`:
+#### `/etc/sysctl.d/tcp_hardening.conf`
 ```
 net.ipv4.tcp_syncookies=1
 net.ipv4.tcp_rfc1337=1
@@ -73,131 +67,203 @@ net.ipv4.conf.default.send_redirects=0
 net.ipv4.icmp_echo_ignore_all=1
 ```
 
-#### ASLR Enhancement
-Create `mmap_aslr.conf`:
+#### `/etc/sysctl.d/mmap_aslr.conf`
 ```
 vm.mmap_rnd_bits=32
 vm.mmap_rnd_compat_bits=16
 ```
 
-#### Additional Security Settings
-Create respective configuration files:
-
-`sysrq.conf`:
+#### `/etc/sysctl.d/sysrq.conf`
 ```
 kernel.sysrq=0
 ```
 
-`unprivileged_users_clone.conf`:
+#### `/etc/sysctl.d/unprivileged_userns_clone.conf`
 ```
 kernel.unprivileged_userns_clone=0
 ```
 
-`tcp_sack.conf`:
+#### `/etc/sysctl.d/tcp_sack.conf`
 ```
 net.ipv4.tcp_sack=0
 ```
 
+#### `/etc/sysctl.d/coredump.conf`
+```
+kernel.core_pattern=|/bin/false
+```
+
+#### `/etc/sysctl.d/filesystem-protect.conf`
+```
+fs.protected_symlinks=1
+fs.protected_hardlinks=1
+fs.protected_fifos=2
+fs.protected_regular=2
+```
+
+Apply:
+```bash
+sudo sysctl --system
+```
+
+---
+
 ### Boot Parameters
 
-Add these parameters to your bootloader configuration:
-
-For GRUB, edit `/etc/default/grub`:
+Edit `/etc/default/grub`:
 ```
-GRUB_CMDLINE_LINUX_DEFAULT="apparmor=1 security=apparmor slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 mce=0 pti=on mds=full,nosmt module.sig_enforce=1 oops=panic"
+GRUB_CMDLINE_LINUX_DEFAULT="loglevel=3 quiet apparmor=1 lsm=landlock,lockdown,yama,integrity,apparmor,bpf security=apparmor slab_nomerge slub_debug=FZ init_on_alloc=1 init_on_free=1 page_alloc.shuffle=1 pti=on mds=full,nosmt module.sig_enforce=1 lockdown=confidentiality oops=panic"
 ```
-
-Regenerate GRUB configuration:
+Regenerate GRUB:
 ```bash
-grub-mkconfig -o /boot/grub/grub.cfg
+sudo grub-mkconfig -o /boot/grub/grub.cfg
 ```
+
+---
 
 ### Process Visibility Restriction
 
-Edit `/etc/fstab` to hide other users' processes:
+Edit `/etc/fstab`:
 ```
 proc /proc proc nosuid,nodev,noexec,hidepid=2,gid=proc 0 0
 ```
 
-Configure systemd-logind in `/etc/systemd/system/systemd-logind.service.d/hidepid.conf`:
+Create `/etc/systemd/system/systemd-logind.service.d/hidepid.conf`:
 ```
 [Service]
 SupplementaryGroups=proc
 ```
 
-### Network Security
-
-Disable automatic connection tracking helper:
-Create `/etc/modprobe.d/no-conntrack-helper.conf`:
+Apply:
+```bash
+sudo systemctl daemon-reexec
+sudo mount -o remount /proc
 ```
+
+---
+
+### Module Blacklisting
+
+Create `/etc/modprobe.d/blacklist-hardening.conf`:
+
+```
+# Wireless
+install btusb /bin/false
+install bluetooth /bin/false
+
+# DMA Attacks
+install firewire-core /bin/false
+install thunderbolt /bin/false
+
+# Uncommon Network Protocols
+install dccp /bin/false
+install sctp /bin/false
+install rds /bin/false
+install tipc /bin/false
+install n-hdlc /bin/false
+install ax25 /bin/false
+install netrom /bin/false
+install x25 /bin/false
+install rose /bin/false
+install decnet /bin/false
+install econet /bin/false
+install af_802154 /bin/false
+install ipx /bin/false
+install appletalk /bin/false
+install psnap /bin/false
+install p8023 /bin/false
+install llc /bin/false
+install p8022 /bin/false
+
+# Uncommon Filesystems
+install cramfs /bin/false
+install freevxfs /bin/false
+install jffs2 /bin/false
+install hfs /bin/false
+install hfsplus /bin/false
+install squashfs /bin/false
+install udf /bin/false
+
+# Connection Tracking Helper
 options nf_conntrack nf_conntrack_helper=0
 ```
+
+Regenerate initramfs:
+```bash
+sudo mkinitcpio -P
+```
+
+---
 
 ## Mandatory Access Control
 
 ### AppArmor Setup
-
-1. Install AppArmor package
-2. Enable AppArmor service
-3. Set kernel parameters (see boot parameters section)
-4. Create application profiles:
-
 ```bash
-aa-genprof /usr/bin/program
+sudo pacman -S apparmor
+sudo systemctl enable --now apparmor.service
+sudo aa-genprof /usr/bin/program
+sudo aa-enforce /etc/apparmor.d/*
+sudo aa-status
 ```
+
+---
 
 ## Sandboxing
 
 ### Recommended: Bubblewrap
-Use bubblewrap for application sandboxing due to its minimal attack surface.
+```bash
+sudo pacman -S bubblewrap
+```
 
 ### Not Recommended: Firejail
-Avoid Firejail due to its large attack surface and history of privilege escalation vulnerabilities.
+Avoid Firejail due to privilege escalation vulnerabilities.
 
 ### Xorg Sandboxing
-Consider using Wayland instead of Xorg for better window isolation. If using Xorg, sandbox with Xpra/Xephyr and bubblewrap.
+Prefer Wayland. For Xorg, sandbox with Xpra/Xephyr + bubblewrap.
+
+---
 
 ## Root Account Security
 
 ### Secure TTY Access
-Keep `/etc/securetty` empty to prevent root login from TTY.
-
-### Restrict su Command
-Edit `/etc/pam.d/su` and `/etc/pam.d/su-l`, uncomment:
+```bash
+sudo truncate -s 0 /etc/securetty
 ```
-auth required pam_wheel.so use_uid
+
+### Restrict `su` Command
+```bash
+sudo sed -i 's/^# auth\s*required\s*pam_wheel.so/auth required pam_wheel.so use_uid/' /etc/pam.d/su
+sudo sed -i 's/^# auth\s*required\s*pam_wheel.so/auth required pam_wheel.so use_uid/' /etc/pam.d/su-l
 ```
 
 ### Lock Root Account
 ```bash
-passwd -l root
+sudo passwd -l root
 ```
 
 ### SSH Configuration
-In `/etc/ssh/sshd_config`:
 ```
 PermitRootLogin no
 ```
+```bash
+sudo systemctl restart sshd
+```
 
 ### Password Hashing
-Edit `/etc/pam.d/passwd`:
 ```
 password required pam_unix.so sha512 shadow nullok rounds=65536
 ```
 
-Rehash existing passwords:
-```bash
-passwd uwu
-```
+---
 
 ## Systemd Sandboxing
 
-Example hardened service configuration:
+Example service override:
 ```ini
 [Service]
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 ProtectSystem=strict
-ReadWriteDirectories=/var/lib/service/
+ReadWritePaths=/var/lib/service/
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -214,209 +280,197 @@ RuntimeDirectoryMode=0700
 SystemCallFilter=~@clock @cpu-emulation @debug @keyring @module @mount @obsolete @raw-io
 ```
 
+Apply:
+```bash
+sudo mkdir -p /etc/systemd/system/service-name.service.d/
+sudo nano /etc/systemd/system/service-name.service.d/hardening.conf
+sudo systemctl daemon-reload
+sudo systemctl restart service-name
+```
+
+---
+
 ## Network Security
 
 ### Firewalls
-Implement strict iptables or nftables rules blocking all incoming traffic unless specifically required.
+```bash
+sudo pacman -S firewalld
+sudo systemctl enable --now firewalld
+sudo firewall-cmd --set-default-zone=drop
+sudo firewall-cmd --permanent --zone=drop --add-service=ssh
+sudo firewall-cmd --reload
+```
 
 ### Tor Configuration
-For anonymity, use Tor Browser with proper AppArmor profiles. Configure stream isolation and transparent proxy if needed.
+Use Tor Browser with AppArmor and stream isolation.
 
 ### Wireless Security
-Disable unnecessary wireless devices:
 ```bash
-rfkill block all
-```
-
-Blacklist wireless modules in `/etc/modprobe.d/blacklist-wireless.conf`:
-```
-install btusb /bin/true
-install bluetooth /bin/true
+sudo rfkill block all
 ```
 
 ### MAC Address Spoofing
-Use macchanger for privacy:
 ```bash
-macchanger -e interface
+sudo pacman -S macchanger
+sudo macchanger -r interface
 ```
 
 ### IPv6 Privacy
 Create `/etc/sysctl.d/ipv6_privacy.conf`:
 ```
-net.ipv6.conf.all.use_tempaddr = 2
-net.ipv6.conf.default.use_tempaddr = 2
-net.ipv6.conf.eth0.use_tempaddr = 2
-net.ipv6.conf.wlan0.use_tempaddr = 2
+net.ipv6.conf.all.use_tempaddr=2
+net.ipv6.conf.default.use_tempaddr=2
+net.ipv6.conf.eth0.use_tempaddr=2
+net.ipv6.conf.wlan0.use_tempaddr=2
 ```
+```bash
+sudo sysctl --system
+```
+
+---
 
 ## System Configuration
 
 ### File Permissions
-Change umask in `/etc/profile`:
 ```
 umask 0077
 ```
 
 ### USB Security
-Use USBGuard or disable USB support entirely with `nousb` boot parameter.
+```bash
+sudo pacman -S usbguard
+sudo systemctl enable --now usbguard.service
+sudo sh -c 'usbguard generate-policy > /etc/usbguard/rules.conf'
+sudo systemctl restart usbguard.service
+```
 
 ### DMA Attack Prevention
-Blacklist DMA-capable modules in `/etc/modprobe.d/blacklist-dma.conf`:
+Enable IOMMU via boot parameters:
 ```
-install firewire-core /bin/true
-install thunderbolt /bin/true
+intel_iommu=on
+amd_iommu=on
 ```
-
-Enable IOMMU with boot parameters:
-- Intel: `intel_iommu=on`
-- AMD: `amd_iommu=on`
 
 ### Core Dump Disabling
-
-#### Sysctl Method
-Create `/etc/sysctl.d/coredump.conf`:
-```
-kernel.core_pattern=|/bin/false
-```
-
-#### Systemd Method
-Create `/etc/systemd/coredump.conf.d/custom.conf`:
-```
-[Coredump]
-Storage=none
-```
-
-#### Ulimit Method
-In `/etc/security/limits.conf`:
-```
-* hard core 0
-```
+See `/etc/sysctl.d/coredump.conf`, Systemd, and `/etc/security/limits.conf` (`* hard core 0`).
 
 ### Uncommon Network Protocols
-Blacklist unused protocols in `/etc/modprobe.d/uncommon-network-protocols.conf`:
-```
-install dccp /bin/true
-install sctp /bin/true
-install rds /bin/true
-install tipc /bin/true
-install n-hdlc /bin/true
-install ax25 /bin/true
-install netrom /bin/true
-install x25 /bin/true
-install rose /bin/true
-install decnet /bin/true
-install econet /bin/true
-install af_802154 /bin/true
-install ipx /bin/true
-install appletalk /bin/true
-install psnap /bin/true
-install p8023 /bin/true
-install llc /bin/true
-install p8022 /bin/true
-```
+Blacklist in `/etc/modprobe.d/uncommon-network-protocols.conf`.
 
 ### Uncommon Filesystems
-Blacklist unused filesystems in `/etc/modprobe.d/uncommon-filesystems.conf`:
-```
-install cramfs /bin/true
-install freevxfs /bin/true
-install jffs2 /bin/true
-install hfs /bin/true
-install hfsplus /bin/true
-install squashfs /bin/true
-install udf /bin/true
-```
+Blacklist in `/etc/modprobe.d/uncommon-filesystems.conf`.
+
+---
 
 ## Virtualization
 
 ### Recommended: KVM/QEMU
-Use KVM/QEMU with virt-manager or GNOME Boxes for secure virtualization.
+```bash
+sudo pacman -S qemu-full virt-manager
+sudo systemctl enable --now libvirtd
+sudo usermod -aG libvirt $USER
+```
 
 ### Not Recommended: VirtualBox
-Avoid VirtualBox due to security concerns and proprietary components.
+
+---
 
 ## Bootloader Security
 
-### GRUB Password Protection
-Generate password hash:
 ```bash
 grub-mkpasswd-pbkdf2
+sudo tee -a /etc/grub.d/40_custom > /dev/null <<'EOF'
+set superusers="admin"
+password_pbkdf2 admin [generated_hash]
+EOF
+sudo chmod +x /etc/grub.d/40_custom
+sudo grub-mkconfig -o /boot/grub/grub.cfg
 ```
 
-Edit `/etc/grub.d/40_custom`:
-```
-set superusers="uwu"
-password_pbkdf2 uwu [generated_hash]
-```
-
-Regenerate configuration:
-```bash
-grub-mkconfig -o /boot/grub/grub.cfg
-```
+---
 
 ## PAM Configuration
 
 ### Strong Password Policy
-Edit `/etc/pam.d/passwd`:
-```
-password required pam_cracklib.so retry=2 minlen=10 difok=6 dcredit=-1 ucredit=-1 ocredit=-1 lcredit=-1
-password required pam_unix.so use_authtok sha512 shadow
+```bash
+sudo pacman -S libpwquality
+sudo tee /etc/security/pwquality.conf > /dev/null <<'EOF'
+minlen = 14
+dcredit = -1
+ucredit = -1
+ocredit = -1
+lcredit = -1
+minclass = 4
+maxrepeat = 3
+usercheck = 1
+enforcing = 1
+EOF
 ```
 
 ### Login Delays and Lockouts
-Edit `/etc/pam.d/system-login`:
 ```
 auth optional pam_faildelay.so delay=4000000
 auth required pam_tally2.so deny=3 unlock_time=600 onerr=succeed file=/var/log/tallylog
 ```
 
+---
+
 ## Additional Security Measures
 
 ### Microcode Updates
-Install appropriate microcode package:
 - AMD: `amd-ucode`
 - Intel: `intel-ucode`
 
 ### Hardware Security
-- Disable webcam and microphone in BIOS when possible
-- Physically remove unnecessary hardware components
-- Use secure boot when available
+- Disable webcam/microphone in BIOS
+- Remove unnecessary hardware
+- Use secure boot if possible
 
 ### Time Synchronization
-Consider disabling NTP due to security concerns:
 ```bash
 timedatectl set-ntp 0
-systemctl disable systemd-timesyncd.service
+sudo systemctl disable --now systemd-timesyncd.service
+```
+
+For Chrony:
+```bash
+sudo pacman -S chrony
+sudo systemctl enable --now chronyd.service
+chronyc tracking
 ```
 
 ### Entropy Generation
-Install entropy generators:
 ```bash
 sudo pacman -S haveged jitterentropy
 sudo systemctl enable --now haveged.service
+sudo systemctl enable --now jitterentropy-rngd.service
 ```
+
+---
 
 ## Best Practices
 
-1. **Principle of Least Privilege**: Disable and remove unnecessary services and features
-2. **Strong Authentication**: Use complex passwords and consider multi-factor authentication
-3. **Regular Updates**: Configure automatic security updates
-4. **Information Disclosure**: Avoid leaking system information
-5. **Monitoring**: Implement logging and monitoring solutions
-6. **Backup Strategy**: Maintain secure, tested backups
-7. **Security Awareness**: Stay informed about new vulnerabilities and mitigation techniques
+1. Principle of Least Privilege  
+2. Strong Authentication (complex passwords, MFA)  
+3. Regular Updates  
+4. Information Disclosure Minimization  
+5. Monitoring & Logging  
+6. Backup Strategy  
+7. Security Awareness  
+
+---
 
 ## File Editing Security
 
-Use `sudoedit` instead of running text editors as root:
 ```bash
 sudoedit /path/to/file
-EDITOR=nano sudoedit /path/to/file
+EDITOR=vim sudoedit /path/to/file
 ```
+
+---
 
 ## Partitioning and Mount Options
 
-Use security-focused mount options in `/etc/fstab`:
 ```
 /dev/sda1 /          ext4    defaults                      1 1
 /dev/sda2 /tmp       ext4    defaults,nosuid,noexec,nodev  1 2
@@ -425,17 +479,16 @@ Use security-focused mount options in `/etc/fstab`:
 /dev/sda5 /boot      ext4    defaults,nosuid,noexec,nodev  1 2
 ```
 
+---
+
 ## Warning
 
-This guide contains advanced security configurations that may break system functionality. Always test configurations in a non-production environment first. Some settings may impact system performance or compatibility with certain applications.
-
-## Contributing
-
-This guide is based on security best practices for Linux systems. Contributions and improvements are welcome through pull requests.
+Test configurations in a non-production environment first
+---
 
 ## License
 
-This guide is provided for educational purposes. Always verify configurations in your specific environment before implementation.
+Educational purposes only. Verify configurations before use.
 
 ---
 
@@ -444,4 +497,3 @@ This guide is provided for educational purposes. Always verify configurations in
 <p align="center">
 	<img src="https://raw.githubusercontent.com/catppuccin/catppuccin/main/assets/footers/gray0_ctp_on_line.svg?sanitize=true" />
 </p>
-
