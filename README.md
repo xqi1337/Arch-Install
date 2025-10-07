@@ -233,7 +233,6 @@ sudo truncate -s 0 /etc/securetty
 ### Restrict `su` Command
 ```bash
 sudo sed -i 's/^# auth\s*required\s*pam_wheel.so/auth required pam_wheel.so use_uid/' /etc/pam.d/su
-sudo sed -i 's/^# auth\s*required\s*pam_wheel.so/auth required pam_wheel.so use_uid/' /etc/pam.d/su-l
 ```
 
 ### Lock Root Account
